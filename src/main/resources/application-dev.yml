@@ -9,7 +9,6 @@ spring:
       database: ${REDIS_DB:0}
   cloud:
     gateway:
-      # 路由定义从我们的 RedisRouteDefinitionRepository 读，不走 yml 静态路由
       discovery:
         locator:
           enabled: false
@@ -17,6 +16,15 @@ spring:
 server:
   port: ${SERVER_PORT:8080}
 
+# 转发链路参数（默认：3s 建连、10s 等上游应答、3s 兜底热刷新）
+apigw:
+  proxy:
+    connect-timeout: ${UPSTREAM_CONNECT_TIMEOUT:3s}
+    response-timeout: ${UPSTREAM_RESPONSE_TIMEOUT:10s}
+    route-refresh-ms: ${ROUTE_REFRESH_MS:3000}
+
 logging:
   level:
     com.apigw: debug
+    # 查账日志：in/out 两段、同一 traceId 可拼成一笔转发
+    com.apigw.access: info

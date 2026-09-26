@@ -9,7 +9,6 @@ import org.springframework.cloud.gateway.filter.FilterDefinition;
 import org.springframework.cloud.gateway.handler.predicate.PredicateDefinition;
 import org.springframework.cloud.gateway.route.RouteDefinition;
 import org.springframework.cloud.gateway.route.RouteDefinitionRepository;
-import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -23,15 +22,18 @@ import java.util.Map;
 /**
  * 把存在 Redis 里的路由配置翻译成 Spring Cloud Gateway 的 {@link RouteDefinition}。
  *
- * 这层是「我们的业务模型」与「SCG 的运行时模型」之间的唯一适配点：
+ * 这层是「我们的业务模型」与「SCG 的运行时模型」之间的适配点：
  * - 业务侧只认 GatewayRoute / GatewayRule（条件 PATH_PREFIX、METHOD…；动作 REQ_ADD_HEADER…）；
  * - SCG 侧认 Predicate + Filter 的名字与参数（Path、Method、AddRequestHeader…）。
  *
- * SCG 会在启动时用这个仓库加载路由；因为配置在 Redis，后面的题只要实现
- * 「改完就刷新」，就能做到不重启生效。
+ * 说明：实际转发由 {@code com.apigw.interfaces.web.ProxyingWebFilter} 主导——
+ * 题目要求的前缀边界（/order/ 与 /order 不同）、补头覆盖同名头、响应内容长度重算等语义，
+ * 内置谓词/过滤器给不了；本类保留作为两套模型的唯一翻译参考，并继续供相关单测约束
+ * 「前缀 → PathPattern」的映射。改完配置的热刷新由 RouteCatalogRefresher 负责。
  */
 @Slf4j
-@Component
+// 不作为 SCG 运行时路由仓库注册：实际转发由 interfaces.web.ProxyingWebFilter 主导。
+// 本类保留「我们的模型 ↔ SCG 模型」唯一翻译点的地位，toPrefixPattern 仍有单测约束。
 public class RedisRouteDefinitionRepository implements RouteDefinitionRepository {
 
     /** 把业务动作类型映射到 SCG 内置 GatewayFilterFactory 的名字。 */

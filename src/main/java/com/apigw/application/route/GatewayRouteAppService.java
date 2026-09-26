@@ -1,11 +1,13 @@
 package com.apigw.application.route;
 
+import com.apigw.application.proxy.RouteChangedEvent;
 import com.apigw.common.exception.BizException;
 import com.apigw.domain.route.GatewayRoute;
 import com.apigw.domain.route.GatewayRule;
 import com.apigw.infrastructure.store.RouteStore;
 import com.apigw.infrastructure.store.dto.PageResult;
 import com.apigw.infrastructure.store.dto.RouteView;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
@@ -30,8 +32,17 @@ public class GatewayRouteAppService {
 
     private final RouteStore routeStore;
 
+    /** 写库成功后通知转发链路热刷新；非 Spring 场景（切片测试直接 new）时为 null。 */
+    private final ApplicationEventPublisher eventPublisher;
+
     public GatewayRouteAppService(RouteStore routeStore) {
+        this(routeStore, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public GatewayRouteAppService(RouteStore routeStore, ApplicationEventPublisher eventPublisher) {
         this.routeStore = routeStore;
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -44,7 +55,8 @@ public class GatewayRouteAppService {
         }
         // 新建不接受客户端自带版本，一律从 0 开始；store.create 里也会再钉一次做双保险
         input.setVersion(0);
-        return routeStore.create(input);
+        return routeStore.create(input)
+                .doOnSuccess(r -> fireChanged(input.getRouteNo(), "CREATE"));
     }
 
     /**
@@ -56,7 +68,8 @@ public class GatewayRouteAppService {
         // id 不接受客户端指定，store 里沿用现有 id
         input.assignRouteNo(routeNo);
         input.setId(null);
-        return routeStore.update(input);
+        return routeStore.update(input)
+                .doOnSuccess(r -> fireChanged(routeNo, "UPDATE"));
     }
 
     public Mono<GatewayRoute> detail(String routeNo) {
@@ -66,7 +79,18 @@ public class GatewayRouteAppService {
 
     /** 删除：不存在、版本旧了都会拿到明确的失败结果，绝不静默当成功。 */
     public Mono<Void> delete(String routeNo, Integer expectVersion) {
-        return routeStore.delete(routeNo, expectVersion);
+        return routeStore.delete(routeNo, expectVersion)
+                .doOnSuccess(v -> fireChanged(routeNo, "DELETE"));
+    }
+
+    /**
+     * 配置落库成功后通知转发链路重新拉表——新配/改/删一条路由，秒级生效，不用重启。
+     * 通知本身不阻塞、不影响写接口的成功返回；事件里只带编号和操作，不带整份配置。
+     */
+    private void fireChanged(String routeNo, String operation) {
+        if (eventPublisher != null) {
+            eventPublisher.publishEvent(new RouteChangedEvent(routeNo, operation));
+        }
     }
 
     /**
